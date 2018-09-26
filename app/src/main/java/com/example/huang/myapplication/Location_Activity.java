@@ -5,12 +5,21 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.location.Location;
 import android.os.Bundle;
+import android.support.annotation.NonNull;
 import android.support.design.widget.FloatingActionButton;
 import android.support.v7.app.AppCompatActivity;
 import android.view.View;
+import android.widget.Button;
 
 import com.google.gson.JsonObject;
+import com.mapbox.android.core.location.LocationEngine;
+import com.mapbox.android.core.location.LocationEngineListener;
+import com.mapbox.android.core.location.LocationEnginePriority;
+import com.mapbox.android.core.location.LocationEngineProvider;
+import com.mapbox.android.core.permissions.PermissionsListener;
+import com.mapbox.android.core.permissions.PermissionsManager;
 import com.mapbox.api.geocoding.v5.models.CarmenFeature;
 import com.mapbox.geojson.Feature;
 import com.mapbox.geojson.FeatureCollection;
@@ -23,6 +32,9 @@ import com.mapbox.mapboxsdk.geometry.LatLng;
 import com.mapbox.mapboxsdk.maps.MapView;
 import com.mapbox.mapboxsdk.maps.MapboxMap;
 import com.mapbox.mapboxsdk.maps.OnMapReadyCallback;
+import com.mapbox.mapboxsdk.plugins.locationlayer.LocationLayerPlugin;
+import com.mapbox.mapboxsdk.plugins.locationlayer.modes.CameraMode;
+import com.mapbox.mapboxsdk.plugins.locationlayer.modes.RenderMode;
 import com.mapbox.mapboxsdk.plugins.places.autocomplete.PlaceAutocomplete;
 import com.mapbox.mapboxsdk.plugins.places.autocomplete.model.PlaceOptions;
 import com.mapbox.mapboxsdk.style.layers.PropertyFactory;
@@ -31,12 +43,15 @@ import com.mapbox.mapboxsdk.style.sources.GeoJsonSource;
 import com.mapbox.mapboxsdk.annotations.Marker;
 import com.mapbox.mapboxsdk.annotations.MarkerOptions;
 
+import java.util.List;
+
 /**
  * Use the places plugin to take advantage of Mapbox's location search ("geocoding") capabilities. The plugin
  * automatically makes geocoding requests, has built-in saved locations, includes location picker functionality,
  * and adds beautiful UI into your Android project.
  */
-public class Location_Activity extends AppCompatActivity implements OnMapReadyCallback {
+public class Location_Activity extends AppCompatActivity implements OnMapReadyCallback,
+        LocationEngineListener, PermissionsListener {
 
     private static final int REQUEST_CODE_AUTOCOMPLETE = 1;
     private MapView mapView;
@@ -45,6 +60,13 @@ public class Location_Activity extends AppCompatActivity implements OnMapReadyCa
     private CarmenFeature work;
     private String geojsonSourceLayerId = "geojsonSourceLayerId";
     private String symbolIconId = "symbolIconId";
+
+    private PermissionsManager permissionsManager;
+    private LocationEngine locationEngine;
+    private LocationLayerPlugin locationLayerPlugin;
+    private Location originLocation;
+
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -60,11 +82,14 @@ public class Location_Activity extends AppCompatActivity implements OnMapReadyCa
         mapView = findViewById(R.id.mapView);
         mapView.onCreate(savedInstanceState);
         mapView.getMapAsync(this);
+        LocateMe();
+
     }
 
     @Override
     public void onMapReady(MapboxMap mapboxMap) {
         this.mapboxMap = mapboxMap;
+        enableLocation();
         initSearchFab();
         addUserLocations();
 
@@ -78,6 +103,90 @@ public class Location_Activity extends AppCompatActivity implements OnMapReadyCa
 
         // Set up a new symbol layer for displaying the searched location's feature coordinates
         setupLayer();
+    }
+
+    private void enableLocation() {
+        // Check if permissions are enabled and if not request
+        if (PermissionsManager.areLocationPermissionsGranted(this)) {
+            initializeLocationEngine();
+            initializeLocationLayer();
+        } else {
+            permissionsManager = new PermissionsManager(this);
+            permissionsManager.requestLocationPermissions(this);
+        }
+    }
+
+    private void LocateMe(){
+        Button button = findViewById(R.id.mylocation);
+        button.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                setCameraPosition(originLocation);
+            }
+        });
+    }
+
+    @SuppressWarnings("MissingPermission")
+    private void initializeLocationEngine(){
+        locationEngine = new LocationEngineProvider(this).obtainBestLocationEngineAvailable();
+        locationEngine.setPriority(LocationEnginePriority.HIGH_ACCURACY);
+        locationEngine.activate();
+
+        Location lastLocation = locationEngine.getLastLocation();
+        if (lastLocation != null){
+            originLocation = lastLocation;
+            setCameraPosition(lastLocation);
+        }else{
+            locationEngine.addLocationEngineListener(this);
+        }
+    }
+
+    @SuppressWarnings("MissingPermission")
+    private void initializeLocationLayer(){
+        locationLayerPlugin = new LocationLayerPlugin(mapView, mapboxMap, locationEngine);
+        locationLayerPlugin.setLocationLayerEnabled(true);
+        locationLayerPlugin.setCameraMode(CameraMode.TRACKING);
+        locationLayerPlugin.setRenderMode(RenderMode.NORMAL);
+    }
+
+    private void setCameraPosition(Location location){
+        mapboxMap.animateCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(location.getLatitude(),
+                location.getLongitude()),13.0));
+
+    }
+
+    @Override
+    @SuppressWarnings("MissingPermission")
+    public void onConnected() {
+        locationEngine.requestLocationUpdates();
+    }
+
+    @Override
+    public void onLocationChanged(Location location) {
+        if (location!=null){
+            originLocation = location;
+            setCameraPosition(location);
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        permissionsManager.onRequestPermissionsResult(requestCode, permissions, grantResults);
+    }
+
+    @Override
+    public void onExplanationNeeded(List<String> permissionsToExplain) {
+
+    }
+
+    @Override
+    public void onPermissionResult(boolean granted) {
+        if (granted) {
+            enableLocation();
+        } else {
+            //Toast.makeText(this, R.string.user_location_permission_not_granted, Toast.LENGTH_LONG).show();
+            finish();
+        }
     }
 
     private void initSearchFab() {
@@ -162,14 +271,28 @@ public class Location_Activity extends AppCompatActivity implements OnMapReadyCa
     }
 
     @Override
+    @SuppressWarnings("MissingPermission")
     protected void onStart() {
         super.onStart();
+        if (locationEngine != null){
+            locationEngine.requestLocationUpdates();
+
+        }
+        if (locationLayerPlugin != null){
+            locationLayerPlugin.onStart();
+        }
         mapView.onStart();
     }
 
     @Override
     protected void onStop() {
         super.onStop();
+        if (locationEngine != null){
+            locationEngine.removeLocationUpdates();
+        }
+        if (locationLayerPlugin != null){
+            locationLayerPlugin.onStop();
+        }
         mapView.onStop();
     }
 
@@ -188,6 +311,9 @@ public class Location_Activity extends AppCompatActivity implements OnMapReadyCa
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (locationEngine != null){
+            locationEngine.deactivate();
+        }
         mapView.onDestroy();
     }
 
@@ -196,4 +322,6 @@ public class Location_Activity extends AppCompatActivity implements OnMapReadyCa
         super.onSaveInstanceState(outState);
         mapView.onSaveInstanceState(outState);
     }
+
+
 }
