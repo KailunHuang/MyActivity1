@@ -45,10 +45,17 @@ dependencies {
     // optional - Test helpers
     androidTestImplementation "android.arch.navigation:navigation-testing:$nav_version"
 
-    implementation 'com.mapbox.mapboxsdk:mapbox-android-sdk:6.4.0'
+    implementation ('com.mapbox.mapboxsdk:mapbox-android-sdk:6.5.0@aar') {
+        transitive=true
+    }
     implementation 'com.mapbox.mapboxsdk:mapbox-android-plugin-locationlayer:0.8.1'
     implementation 'com.mapbox.mapboxsdk:mapbox-android-plugin-places:0.6.0'
 
     //google play service dependencies
     implementation 'com.google.android.gms:play-services-location:15.0.1'
+    //navigation dependencies
+    implementation 'com.mapbox.mapboxsdk:mapbox-android-navigation:0.19.0'
+    implementation ('com.mapbox.mapboxsdk:mapbox-android-navigation-ui:0.19.0') {
+        transitive = true
+    }
 }
